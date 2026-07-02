@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Before / After Slider</title>
+<style>
+/* ── RESET & BASE ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:        #0f0f0f;
+  --surface:   #1a1a1a;
+  --surface2:  #242424;
+  --border:    #2e2e2e;
+  --text:      #e8e8e8;
+  --text2:     #999;
+  --accent:    #ffffff;
+  --radius:    10px;
+  --panel-w:   300px;
+}
+html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--text); }
+
+/* ── LAYOUT ── */
+#app { display: flex; height: 100vh; width: 100vw; }
+
+/* slider area */
+#slider-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #111;
+  cursor: col-resize;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+/* placeholder */
+#placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 20;
+  background: #111;
+}
+#placeholder svg { opacity: .25; }
+#placeholder p { font-size: 14px; color: var(--text2); text-align: center; line-height: 1.6; max-width: 220px; }
+
+/* images */
+#img-before {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+}
+#clip {
+  position: absolute;
+  top: 0; left: 0;
+  height: 100%;
+  width: 50%;
+  overflow: hidden;
+  display: none;
+}
+#img-after {
+  position: absolute;
+  top: 0; left: 0;
+  object-fit: cover;
+  /* width/height set by JS to match slider-wrap */
+}
+
+/* divider line */
+#div-line {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 10;
+  display: none;
+  background: #fff;
+  width: 2px;
+}
+
+/* handle */
+#handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 11;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  border-radius: 50%;
+  /* appearance controlled inline */
+}
+#handle:active { cursor: grabbing; }
+#handle-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: visible;
+}
+/* pure CSS arrows — no SVG, no images */
+#handle-inner::before,
+#handle-inner::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  border-style: solid;
+  border-color: transparent;
+}
+#handle-inner::before {
+  left: 22%;
+  transform: translateY(-50%);
+  border-width: 6px 8px 6px 0;
+  border-right-color: var(--arrow-col, #333);
+}
+#handle-inner::after {
+  right: 22%;
+  transform: translateY(-50%);
+  border-width: 6px 0 6px 8px;
+  border-left-color: var(--arrow-col, #333);
+}
+
+/* labels */
+.ba-lbl {
+  position: absolute;
+  bottom: 14px;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 9;
+  letter-spacing: .08em;
+  opacity: .78;
+  font-family: sans-serif;
+  display: none;
+  white-space: nowrap;
+}
+#lbl-before { left: 14px; }
+#lbl-after  { right: 14px; }
+
+/* toggle panel button (mobile) */
+#toggle-panel {
+  display: none;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 30;
+  background: rgba(0,0,0,.55);
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: #fff;
+  font-size: 12px;
+  gap: 5px;
+  align-items: center;
+}
+
+/* ── PANEL ── */
+#panel {
+  width: var(--panel-w);
+  min-width: var(--panel-w);
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform .25s ease;
+}
+#panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 14px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+#panel-scroll::-webkit-scrollbar { width: 4px; }
+#panel-scroll::-webkit-scrollbar-track { background: transparent; }
+#panel-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  color: var(--text2);
+  text-transform: uppercase;
+  margin: 18px 0 10px;
+}
+.panel-title:first-child { margin-top: 0; }
+
+/* upload buttons */
+.upload-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
+.upload-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 6px;
+  border-radius: var(--radius);
+  border: 1.5px dashed var(--border);
+  cursor: pointer;
+  background: var(--surface2);
+  transition: border-color .2s, background .2s;
+  text-align: center;
+}
+.upload-btn:hover { border-color: #555; background: #2c2c2c; }
+.upload-btn.has-img { border-style: solid; border-color: #3a3a3a; }
+.upload-btn svg { opacity: .5; }
+.upload-btn span.label { font-size: 10px; color: var(--text2); letter-spacing: .05em; text-transform: uppercase; }
+.upload-btn span.fname { font-size: 10px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.upload-btn input { display: none; }
+
+/* control rows */
+.ctrl { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ctrl:last-child { margin-bottom: 0; }
+.ctrl label { font-size: 11px; color: var(--text2); min-width: 62px; flex-shrink: 0; }
+.ctrl input[type=color] {
+  width: 30px; height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 2px;
+  background: var(--surface2);
+  flex-shrink: 0;
+}
+.ctrl input[type=range] { flex: 1; accent-color: var(--accent); }
+.ctrl input[type=number] {
+  width: 46px; height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 11px;
+}
+.ctrl input[type=text] {
+  flex: 1; height: 26px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 11px;
+}
+.ctrl select {
+  flex: 1; height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 11px;
+}
+.ctrl .val { font-size: 11px; color: #666; min-width: 22px; text-align: right; }
+.ctrl-pair { display: flex; gap: 6px; flex: 1; }
+
+.divider { height: 1px; background: var(--border); margin: 14px 0; }
+
+/* panel footer */
+#panel-footer {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: #555;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 640px) {
+  :root { --panel-w: 100vw; }
+  #app { flex-direction: column; }
+  #slider-wrap { flex: 1; min-height: 0; }
+  #panel {
+    position: fixed;
+    top: 0; right: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 50;
+    transform: translateX(100%);
+    border-left: none;
+  }
+  #panel.open { transform: translateX(0); }
+  #toggle-panel { display: flex; }
+  #panel-close {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 14px 0;
+    flex-shrink: 0;
+  }
+}
+@media (min-width: 641px) {
+  #panel-close { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══ SLIDER AREA ═══ -->
+  <div id="slider-wrap">
+
+    <div id="placeholder">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+      </svg>
+      <p>Carica le immagini<br>nel pannello a destra</p>
+    </div>
+
+    <img id="img-before" alt="Prima">
+    <div id="clip"><img id="img-after" alt="Dopo"></div>
+    <div id="div-line"></div>
+
+    <div id="handle">
+      <div id="handle-inner"></div>
+    </div>
+
+    <span class="ba-lbl" id="lbl-before">PRIMA</span>
+    <span class="ba-lbl" id="lbl-after">DOPO</span>
+
+    <!-- mobile toggle -->
+    <button id="toggle-panel" aria-label="Apri impostazioni">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Impostazioni
+    </button>
+  </div>
+
+  <!-- ═══ CONTROL PANEL ═══ -->
+  <div id="panel">
+
+    <!-- mobile close -->
+    <div id="panel-close">
+      <span style="font-size:13px;font-weight:600;">Impostazioni</span>
+      <button id="close-btn" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:20px;line-height:1;">&times;</button>
+    </div>
+
+    <div id="panel-scroll">
+
+      <!-- IMMAGINI -->
+      <div class="panel-title">Immagini</div>
+      <div class="upload-row">
+        <label class="upload-btn" id="btn-before" for="file-before">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span class="label">Prima</span>
+          <span class="fname" id="name-before">nessun file</span>
+          <input type="file" id="file-before" accept="image/*">
+        </label>
+        <label class="upload-btn" id="btn-after" for="file-after">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span class="label">Dopo</span>
+          <span class="fname" id="name-after">nessun file</span>
+          <input type="file" id="file-after" accept="image/*">
+        </label>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- LINEA -->
+      <div class="panel-title">Linea divisoria</div>
+      <div class="ctrl">
+        <label>Colore</label>
+        <input type="color" id="line-color" value="#ffffff">
+      </div>
+      <div class="ctrl">
+        <label>Spessore</label>
+        <input type="range" id="line-w" min="1" max="12" value="2" step="1">
+        <span class="val" id="line-w-val">2px</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- HANDLE -->
+      <div class="panel-title">Cursore (handle)</div>
+      <div class="ctrl">
+        <label>Forma</label>
+        <select id="dot-shape">
+          <option value="circle">Cerchio</option>
+          <option value="square">Quadrato</option>
+          <option value="pill">Pillola</option>
+        </select>
+      </div>
+      <div class="ctrl">
+        <label>Dimensione</label>
+        <input type="range" id="dot-size" min="24" max="72" value="36" step="1">
+        <span class="val" id="dot-size-val">36px</span>
+      </div>
+      <div class="ctrl">
+        <label>Sfondo</label>
+        <input type="color" id="dot-bg" value="#ffffff">
+      </div>
+      <div class="ctrl">
+        <label>Frecce</label>
+        <input type="color" id="arrow-col" value="#333333">
+      </div>
+      <div class="ctrl">
+        <label>Bordo</label>
+        <div class="ctrl-pair">
+          <input type="color" id="stroke-col" value="#888888">
+          <input type="range" id="stroke-w" min="0" max="8" value="0" step="1">
+          <span class="val" id="stroke-w-val">0px</span>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- ETICHETTE -->
+      <div class="panel-title">Etichetta sinistra</div>
+      <div class="ctrl">
+        <label>Testo</label>
+        <input type="text" id="txt-before" value="PRIMA">
+      </div>
+      <div class="ctrl">
+        <label>Sfondo</label>
+        <input type="color" id="bg-before" value="#000000">
+      </div>
+      <div class="ctrl">
+        <label>Testo</label>
+        <input type="color" id="col-before" value="#ffffff">
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="panel-title">Etichetta destra</div>
+      <div class="ctrl">
+        <label>Testo</label>
+        <input type="text" id="txt-after" value="DOPO">
+      </div>
+      <div class="ctrl">
+        <label>Sfondo</label>
+        <input type="color" id="bg-after" value="#000000">
+      </div>
+      <div class="ctrl">
+        <label>Testo</label>
+        <input type="color" id="col-after" value="#ffffff">
+      </div>
+
+    </div><!-- /panel-scroll -->
+
+    <div id="panel-footer">
+      Before/After Slider &mdash; carica le immagini per iniziare
+    </div>
+  </div><!-- /panel -->
+
+</div><!-- /app -->
+
+<script>
+(function(){
+  // ── ELEMENTS ──
+  var wrap      = document.getElementById('slider-wrap');
+  var clip      = document.getElementById('clip');
+  var imgBefore = document.getElementById('img-before');
+  var imgAfter  = document.getElementById('img-after');
+  var divLine   = document.getElementById('div-line');
+  var handle    = document.getElementById('handle');
+  var handleIn  = document.getElementById('handle-inner');
+  var lblBefore = document.getElementById('lbl-before');
+  var lblAfter  = document.getElementById('lbl-after');
+  var ph        = document.getElementById('placeholder');
+  var panel     = document.getElementById('panel');
+
+  // ── STATE ──
+  var srcBefore = null, srcAfter = null;
+  var drag = false, raf = null, tp = 50, cp = 50;
+
+  // ── HELPERS ──
+  function h2r(hex,a){
+    var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+    return a!=null?'rgba('+r+','+g+','+b+','+a+')':'rgb('+r+','+g+','+b+')';
+  }
+  function v(id){ return document.getElementById(id).value; }
+
+  // ── FIX AFTER IMAGE SIZE ──
+  // img-after must always be the same size as the wrap, not the clip
+  function fixAfterSize(){
+    imgAfter.style.width  = wrap.offsetWidth  + 'px';
+    imgAfter.style.height = wrap.offsetHeight + 'px';
+    imgAfter.style.maxWidth = 'none';
+  }
+  window.addEventListener('resize', fixAfterSize);
+
+  // ── LERP ANIMATION ──
+  function animLoop(){
+    cp += (tp - cp) * 0.12;
+    applyPos(cp);
+    if(Math.abs(tp - cp) > 0.05){
+      raf = requestAnimationFrame(animLoop);
+    } else {
+      cp = tp;
+      applyPos(tp);
+      raf = null;
+    }
+  }
+  function applyPos(p){
+    clip.style.width    = p + '%';
+    divLine.style.left  = p + '%';
+    handle.style.left   = p + '%';
+  }
+  function setTarget(pct){
+    tp = Math.max(2, Math.min(98, pct));
+    if(!raf) raf = requestAnimationFrame(animLoop);
+  }
+  function getPct(clientX){
+    var r = wrap.getBoundingClientRect();
+    return ((clientX - r.left) / r.width) * 100;
+  }
+
+  // ── DRAG EVENTS ──
+  wrap.addEventListener('mousedown', function(e){ drag=true; setTarget(getPct(e.clientX)); e.preventDefault(); });
+  window.addEventListener('mousemove', function(e){ if(drag) setTarget(getPct(e.clientX)); });
+  window.addEventListener('mouseup', function(){ drag=false; });
+  wrap.addEventListener('touchstart', function(e){ drag=true; setTarget(getPct(e.touches[0].clientX)); }, {passive:true});
+  window.addEventListener('touchmove', function(e){ if(drag) setTarget(getPct(e.touches[0].clientX)); }, {passive:true});
+  window.addEventListener('touchend', function(){ drag=false; });
+
+  // ── APPLY SETTINGS ──
+  function applySettings(){
+    // Line
+    divLine.style.background = v('line-color');
+    divLine.style.width = v('line-w') + 'px';
+    document.getElementById('line-w-val').textContent = v('line-w') + 'px';
+
+    // Handle shape/size
+    var size  = parseInt(v('dot-size'));
+    var shape = v('dot-shape');
+    var isPill = shape === 'pill';
+    var W = isPill ? Math.round(size * 1.65) : size;
+    var H = size;
+    var radius = shape==='circle' ? '50%' : shape==='square' ? '10%' : '50px';
+    var strokeW = parseInt(v('stroke-w'));
+    var strokeC = v('stroke-col');
+
+    handle.style.width   = W + 'px';
+    handle.style.height  = H + 'px';
+    handle.style.borderRadius = radius;
+    handle.style.background   = v('dot-bg');
+    handle.style.border = strokeW > 0 ? strokeW+'px solid '+strokeC : 'none';
+    handle.style.setProperty('--arrow-col', v('arrow-col'));
+
+    // Arrow size relative to handle
+    var arrowSize = Math.round(size * 0.18);
+    var arrowBase = Math.round(size * 0.24);
+    handleIn.style.setProperty('--asz', arrowSize+'px');
+    handleIn.style.setProperty('--ab',  arrowBase+'px');
+    // recalc pseudo-elements via inline override trick
+    // We update a dynamic style tag instead
+    updateArrowStyle(arrowSize, arrowBase, v('arrow-col'));
+
+    document.getElementById('dot-size-val').textContent = size + 'px';
+    document.getElementById('stroke-w-val').textContent = strokeW + 'px';
+
+    // Labels
+    var tB = v('txt-before') || 'PRIMA';
+    var tA = v('txt-after')  || 'DOPO';
+    lblBefore.textContent = tB;
+    lblAfter.textContent  = tA;
+    lblBefore.style.background = h2r(v('bg-before'), 0.55);
+    lblBefore.style.color      = v('col-before');
+    lblAfter.style.background  = h2r(v('bg-after'), 0.55);
+    lblAfter.style.color       = v('col-after');
+  }
+
+  // Dynamic style for CSS pseudo arrows (avoids SVG entirely)
+  var arrowStyle = document.createElement('style');
+  document.head.appendChild(arrowStyle);
+  function updateArrowStyle(sz, base, col){
+    arrowStyle.textContent =
+      '#handle-inner::before{border-width:'+sz+'px '+base+'px '+sz+'px 0;border-right-color:'+col+'}'+
+      '#handle-inner::after{border-width:'+sz+'px 0 '+sz+'px '+base+'px;border-left-color:'+col+'}';
+  }
+
+  // ── SHOW SLIDER ──
+  function showSlider(){
+    if(!srcBefore || !srcAfter) return;
+    imgBefore.src = srcBefore;
+    imgAfter.src  = srcAfter;
+    imgBefore.style.display = 'block';
+    clip.style.display      = 'block';
+    divLine.style.display   = 'block';
+    handle.style.display    = 'flex';
+    lblBefore.style.display = 'block';
+    lblAfter.style.display  = 'block';
+    ph.style.display        = 'none';
+    tp = 50; cp = 50;
+    applyPos(50);
+    imgAfter.onload = fixAfterSize;
+    fixAfterSize();
+    applySettings();
+    document.getElementById('panel-footer').textContent = 'Trascina la linea per confrontare le immagini.';
+  }
+
+  // ── FILE UPLOAD ──
+  function readFile(input, nameEl, isBefore){
+    var f = input.files[0];
+    if(!f) return;
+    nameEl.textContent = f.name;
+    document.getElementById(isBefore ? 'btn-before' : 'btn-after').classList.add('has-img');
+    var reader = new FileReader();
+    reader.onload = function(e){
+      if(isBefore) srcBefore = e.target.result;
+      else         srcAfter  = e.target.result;
+      showSlider();
+    };
+    reader.readAsDataURL(f);
+  }
+  document.getElementById('file-before').addEventListener('change', function(){
+    readFile(this, document.getElementById('name-before'), true);
+  });
+  document.getElementById('file-after').addEventListener('change', function(){
+    readFile(this, document.getElementById('name-after'), false);
+  });
+
+  // ── LIVE CONTROLS ──
+  var controls = ['line-color','line-w','dot-shape','dot-size','dot-bg','arrow-col','stroke-col','stroke-w','txt-before','bg-before','col-before','txt-after','bg-after','col-after'];
+  controls.forEach(function(id){
+    document.getElementById(id).addEventListener('input', applySettings);
+  });
+
+  // ── MOBILE PANEL TOGGLE ──
+  document.getElementById('toggle-panel').addEventListener('click', function(){
+    panel.classList.add('open');
+  });
+  document.getElementById('close-btn').addEventListener('click', function(){
+    panel.classList.remove('open');
+  });
+
+  // ── INIT ──
+  applySettings();
+
+})();
+</script>
+</body>
+</html>
